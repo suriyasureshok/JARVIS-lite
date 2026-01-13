@@ -7,7 +7,11 @@ All configurable parameters are defined here for easy maintenance and deployment
 
 from typing import List, Tuple
 import os
+from dotenv import load_dotenv
 from .logging_config import logger
+
+# Load environment variables from .env file
+load_dotenv()
 
 # =============================================================================
 # DETECTION CONFIGURATION

@@ -2,3 +2,8 @@ ultralytics
 opencv-python
 numpy
 loguru
+vosk
+pyttsx3
+sounddevice
+dotenv
+openai

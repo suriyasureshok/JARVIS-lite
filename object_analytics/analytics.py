@@ -217,11 +217,11 @@ class ObjectAnalytics:
 
     def summarize(self, analytics_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Generate structured analytics summary for integration.
+        Generate structured analytics summary for LLM integration.
 
-        Creates a summary dictionary suitable for consumption by downstream
-        systems, APIs, or databases. Includes total object count and details
-        of the highest-priority object.
+        Creates a comprehensive summary dictionary optimized for LLM reasoning.
+        Includes total object count and complete detection details for all objects,
+        enabling the LLM to answer complex queries about the scene.
 
         Parameters
         ----------
@@ -234,14 +234,16 @@ class ObjectAnalytics:
             Summary dictionary with the following structure:
             {
                 'total_objects': int, Total number of detected objects,
-                'top_object': dict or None, Details of highest priority object
+                'detections': list of dict, Full list of all detections with:
+                    - 'class': str, Object class name
+                    - 'class_id': int, COCO class ID
+                    - 'confidence': float, Detection confidence (0-1)
+                    - 'priority': float, Priority score (0-10)
+                    - 'area_ratio': float, Object area / frame area
+                    - 'position': str, Position description (e.g., 'center', 'left')
+                    - 'center': tuple, (x, y) coordinates
+                    - 'bbox': list, Bounding box [x1, y1, x2, y2]
             }
-
-            When top_object is present, it contains:
-            - 'class_id': int, COCO class ID
-            - 'confidence': float, Detection confidence
-            - 'priority': float, Priority score
-            - 'center': tuple of int, Object center coordinates
 
         Raises
         ------
@@ -255,8 +257,8 @@ class ObjectAnalytics:
         >>> analyzed = analytics.analyze(detections, frame.shape)
         >>> summary = analytics.summarize(analyzed)
         >>> print(f"Total objects: {summary['total_objects']}")
-        >>> if summary['top_object']:
-        ...     print(f"Top object class: {summary['top_object']['class_id']}")
+        >>> for det in summary['detections']:
+        ...     print(f"{det['class']}: {det['confidence']:.2f}")
         """
         if analytics_data is None:
             error_msg = "Analytics data cannot be None"
@@ -269,42 +271,47 @@ class ObjectAnalytics:
             raise ValueError(error_msg)
 
         try:
-            logger.debug(f"Generating summary for {len(analytics_data)} analyzed objects")
+            logger.debug(f"Generating LLM-optimized summary for {len(analytics_data)} analyzed objects")
+
+            # Build comprehensive detection list for LLM
+            detections_summary = []
+            
+            for detection in analytics_data:
+                try:
+                    # Extract all relevant fields with fallbacks
+                    det_summary = {
+                        "class": detection.get("class", "unknown"),
+                        "class_id": detection.get("class_id", -1),
+                        "confidence": detection.get("confidence", 0.0),
+                        "priority": detection.get("priority", 0.0),
+                        "area_ratio": detection.get("area_ratio", 0.0),
+                        "center": detection.get("center", (0, 0)),
+                        "bbox": detection.get("bbox", [0, 0, 0, 0])
+                    }
+                    
+                    # Add position description for natural language understanding
+                    center_x, center_y = det_summary["center"]
+                    if center_x < 0.33:
+                        position = "left"
+                    elif center_x < 0.67:
+                        position = "center"
+                    else:
+                        position = "right"
+                    
+                    det_summary["position"] = position
+                    
+                    detections_summary.append(det_summary)
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing detection for summary: {e}")
+                    continue
 
             summary = {
-                "total_objects": len(analytics_data),
-                "top_object": None
+                "total_objects": len(detections_summary),
+                "detections": detections_summary
             }
 
-            if analytics_data:
-                try:
-                    top = analytics_data[0]  # Already sorted by priority
-
-                    # Validate top object has required fields
-                    required_fields = ["class_id", "confidence", "priority", "center"]
-                    missing_fields = [field for field in required_fields if field not in top]
-
-                    if missing_fields:
-                        logger.warning(f"Top object missing required fields: {missing_fields}")
-                        # Try to extract what we can
-                        top_object = {}
-                        for field in required_fields:
-                            if field in top:
-                                top_object[field] = top[field]
-                        summary["top_object"] = top_object if top_object else None
-                    else:
-                        summary["top_object"] = {
-                            "class_id": top["class_id"],
-                            "confidence": top["confidence"],
-                            "priority": top["priority"],
-                            "center": top["center"]
-                        }
-
-                except (KeyError, IndexError) as e:
-                    logger.warning(f"Error extracting top object data: {e}")
-                    summary["top_object"] = None
-
-            logger.debug(f"Summary generated: {summary['total_objects']} total objects")
+            logger.debug(f"LLM summary generated: {summary['total_objects']} detections")
             return summary
 
         except Exception as e:

@@ -1,33 +1,40 @@
 """
-Real-Time Object Analytics Main Module.
+Real-Time Multimodal AI System - JARVIS-lite Main Module.
 
-This module provides the main application entry point for running the
-real-time object detection and analytics system on live video streams.
+This module provides the main application entry point for the complete
+multimodal AI system combining computer vision, analytics, LLM reasoning,
+and voice interaction.
+
+ARCHITECTURE:
+Vision Pipeline: Camera → YOLO → Analytics → Display (Real-time, 30+ FPS)
+Voice Pipeline: Microphone → STT → LLM → TTS → Speaker (Parallel, non-blocking)
 
 The system processes video frames through a complete pipeline:
 1. Frame capture and preprocessing
 2. Object detection using YOLOv8
 3. Semantic filtering for important classes
 4. Analytics and priority scoring
-5. Visualization with performance metrics
-6. Structured output generation
+5. LLM-powered reasoning via OpenRouter
+6. Voice input/output interaction
+7. Visualization with performance metrics
 
 Examples
 --------
-Run the real-time analytics system:
+Run the JARVIS-lite system:
 
 >>> python -m object_analytics.main
 
 Or import and use programmatically:
 
 >>> from object_analytics.main import main
->>> main()  # Runs the video processing loop
+>>> main()  # Runs the multimodal system
 """
 
 import cv2
 import time
 import signal
 import sys
+import threading
 from contextlib import contextmanager
 from typing import Optional, Generator
 
@@ -37,26 +44,37 @@ from .config import (
     FPS_COLOR, LATENCY_COLOR, TEXT_SCALE, TEXT_THICKNESS
 )
 from .logging_config import logger
-from .utils import draw_detections, preprocess_frame
+from .utils import draw_detections, preprocess_frame, calculate_fps
 from .detector import ObjectDetector
 from .analytics import ObjectAnalytics
+from .voice_engine import VoiceEngine
+from .llm_engine import LLMEngine
 
 
 class VideoAnalyticsApp:
     """
-    Main application class for real-time video object analytics.
+    Main application class for JARVIS-lite multimodal AI system.
 
-    Encapsulates the complete video processing pipeline with proper
-    resource management, error handling, and graceful shutdown.
+    Encapsulates the complete multimodal pipeline:
+    - Vision: Real-time object detection and analytics
+    - Reasoning: LLM-powered intelligent question answering
+    - Voice: Speech input/output for natural interaction
+    
+    Architecture:
+    - Main thread: Vision processing loop (30+ FPS)
+    - Voice thread: Speech I/O + LLM reasoning (non-blocking)
     """
 
     def __init__(self):
-        """Initialize the video analytics application."""
+        """Initialize the JARVIS-lite application."""
         self.cap: Optional[cv2.VideoCapture] = None
         self.detector: Optional[ObjectDetector] = None
         self.analytics_engine: Optional[ObjectAnalytics] = None
+        self.llm_engine: Optional[LLMEngine] = None
+        self.voice_engine: Optional[VoiceEngine] = None
         self.class_map: Optional[list] = None
         self.running = False
+        self.latest_summary = {}  # Shared between vision and voice threads
 
     def initialize(self) -> bool:
         """
@@ -93,6 +111,23 @@ class VideoAnalyticsApp:
             # Initialize analytics engine
             self.analytics_engine = ObjectAnalytics()
 
+            # Initialize LLM reasoning engine (OpenRouter)
+            try:
+                self.llm_engine = LLMEngine()
+                logger.info("LLM reasoning engine initialized successfully")
+            except Exception as e:
+                logger.warning(f"LLM engine initialization failed: {e}. Continuing with fallback reasoning.")
+                self.llm_engine = None
+
+            # Initialize voice engine
+            vosk_model_path = "object_analytics/models/vosk-model-small-en-us-0.15"
+            try:
+                self.voice_engine = VoiceEngine(vosk_model_path)
+                logger.info("Voice engine initialized successfully")
+            except Exception as e:
+                logger.warning(f"Voice engine initialization failed: {e}. Continuing without voice capabilities.")
+                self.voice_engine = None
+
             logger.info("Initialization completed successfully")
             return True
 
@@ -100,6 +135,53 @@ class VideoAnalyticsApp:
             logger.error(f"Initialization failed: {e}")
             self.cleanup()
             return False
+
+    def voice_loop(self):
+        """
+        Non-blocking voice interaction loop with LLM reasoning.
+
+        Runs in a separate thread to handle:
+        1. Speech-to-text (Vosk)
+        2. LLM reasoning (OpenRouter)
+        3. Text-to-speech (pyttsx3)
+        
+        This loop never blocks the main vision processing thread.
+        """
+        if not self.voice_engine:
+            logger.warning("Voice engine not available, skipping voice loop")
+            return
+        
+        if not self.llm_engine:
+            logger.warning("LLM engine not available, voice interaction will be limited")
+
+        logger.info("🎤 JARVIS voice interaction loop started")
+        logger.info("📡 Using LLM-powered reasoning via OpenRouter")
+
+        while self.running:
+            try:
+                # Listen for user input (blocking within voice thread only)
+                user_question = self.voice_engine.listen()
+
+                # Get latest scene summary (thread-safe copy)
+                summary = self.latest_summary.copy()
+
+                # Generate LLM response (with timeout protection)
+                if self.llm_engine:
+                    answer = self.llm_engine.answer(summary, user_question, timeout=5.0)
+                else:
+                    # Fallback to basic summary if LLM unavailable
+                    total = summary.get('total_objects', 0)
+                    answer = f"I see {total} object{'s' if total != 1 else ''} in the scene."
+
+                # Output response
+                logger.info(f"JARVIS: {answer}")
+                self.voice_engine.speak(answer)
+
+            except Exception as e:
+                logger.error(f"Voice loop error: {e}")
+                time.sleep(1)  # Brief pause before retrying
+
+        logger.info("Voice interaction loop ended")
 
     def cleanup(self) -> None:
         """Clean up resources and close connections."""
@@ -411,6 +493,15 @@ class VideoAnalyticsApp:
 
             logger.info("Starting video analytics loop. Press 'q' to quit.")
 
+            # Start voice interaction thread
+            if self.voice_engine:
+                voice_thread = threading.Thread(target=self.voice_loop)
+                voice_thread.daemon = True
+                voice_thread.start()
+                logger.info("Voice interaction thread started")
+            else:
+                logger.info("Voice capabilities not available - continuing with visual analytics only")
+
             with self.graceful_shutdown():
                 while self.running:
                     try:
@@ -428,6 +519,9 @@ class VideoAnalyticsApp:
 
                         # Process frame (this includes detection and analytics)
                         processed_frame, summary, fps, latency = self.process_frame(frame)
+
+                        # Update latest summary for voice interaction
+                        self.latest_summary = summary
 
                         # Get analyzed detections for display and logging
                         # (We need to redo the filtering and analysis since process_frame returns summary only)
