@@ -1,0 +1,35 @@
+[project]
+name = "real-time-object-analytics-engine-for-live-video-streams"
+version = "0.1.0"
+description = "Production-ready real-time object detection and analytics engine for live video streams using YOLOv8"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "Suriya Sureshkumar", email = "suriyasureshkumarkannian@gmail.com"}
+]
+keywords = ["computer-vision", "object-detection", "yolo", "real-time", "analytics", "video-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "numpy>=2.4.1",
+    "opencv-python>=4.11.0.86",
+    "ultralytics>=8.3.252",
+]
+
+[project.urls]
+Homepage = "https://github.com/suriyasureshok/real-time-object-analytics-engine"
+Repository = "https://github.com/suriyasureshok/real-time-object-analytics-engine.git"
+Issues = "https://github.com/suriyasureshok/real-time-object-analytics-engine/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
